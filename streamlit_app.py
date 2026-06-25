@@ -16,6 +16,9 @@ RSS_FEEDS = [
     "https://news.yahoo.co.jp/rss/topics/life.xml",
     "https://news.yahoo.co.jp/rss/topics/entertainment.xml",
     "https://news.yahoo.co.jp/rss/topics/health.xml",
+    "https://news.yahoo.co.jp/rss/topics/beauty.xml",
+    "https://news.yahoo.co.jp/rss/topics/family.xml",
+    "https://news.yahoo.co.jp/rss/topics/fashion.xml",
 ]
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 
@@ -75,34 +78,50 @@ def generate_post(api_key):
 
     message = client.messages.create(
         model="claude-opus-4-8",
-        max_tokens=1024,
+        max_tokens=1500,
         messages=[{
             "role": "user",
             "content": f"""以下はYahoo! Japanの最新ニュース見出しです:
 
 {topics_text}
 
-この中から20〜40代の日本人女性が最も共感・興味を持ちそうなトピックを1つ選び、
+この中から20〜40代の日本人女性（アラサー・アラフォー）が最も共感・興味を持ちそうなトピックを1つ選び、
 Threadsに投稿する文章を作成してください。
 
-【条件】
-- ガールズちゃんねるやSNSの日本女性の書き方に近い、親しみやすい口語体
-- 等身大の本音・共感を引き出す内容（説教や押しつけはNG）
-- 150〜200文字程度
-- ハッシュタグを3〜5個（末尾にまとめる）
-- 絵文字を自然に1〜3個使う
+【ターゲット】
+- 20〜40代の日本人女性
+- 日常のリアルな本音を語り合うのが好きなタイプ
+- Threads・X・インスタのSNSユーザー
+
+【文体・スタイル】
+- Threadsらしい読みやすい改行（2〜3文ごとに改行）
+- ガールズちゃんねる・X（旧Twitter）の女性ユーザー風の自然な口語体
+- 共感を引き出す等身大の本音トーク（説教・押しつけ絶対NG）
+- 「ww」「笑」「〜じゃない？」「〜だよね」「〜すぎる」など自然な表現を使う
+- 文末に「。」を使わない（Threads・SNS感を出す、読点「、」はOK）
+- 絵文字を文中・文末に自然に1〜3個（😭🤣✨💦🥹など今どき感あるもの）
+- トレンド感・時事感を出す
+- ハッシュタグ3〜5個（末尾にまとめる、今っぽいタグ選定）
+- 全体150〜200文字程度
 
 【出力形式】
 選んだトピック：〇〇〇
 ---
-（投稿本文）"""
+（Threads投稿本文）
+===
+（위 일본어 글의 한국어 번역. 뉘앙스·인터넷 용어·해시태그 의미 포함해서 자연스럽게）"""
         }]
     )
 
     raw = message.content[0].text
     parts = raw.split("---", 1)
     topic = parts[0].replace("選んだトピック：", "").strip()
-    content = parts[1].strip() if len(parts) > 1 else raw.strip()
+    rest = parts[1].strip() if len(parts) > 1 else raw.strip()
+
+    jp_ko = rest.split("===", 1)
+    content = jp_ko[0].strip()
+    content_ko = jp_ko[1].strip() if len(jp_ko) > 1 else ""
+
     images = collect_image_urls(articles)
 
     post = {
@@ -110,6 +129,7 @@ Threadsに投稿する文章を作成してください。
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "topic": topic,
         "content": content,
+        "content_ko": content_ko,
         "images": images,
     }
 
@@ -220,6 +240,10 @@ else:
             st.markdown(f"""
             <div class='post-content'>{post['content']}</div>
             """, unsafe_allow_html=True)
+
+            if post.get("content_ko"):
+                with st.expander("🇰🇷 한국어 번역 보기"):
+                    st.markdown(post["content_ko"])
 
             col_space, col_del = st.columns([5, 1])
             with col_del:
