@@ -23,7 +23,7 @@ HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
 def load_config():
     if CONFIG_FILE.exists():
         return json.loads(CONFIG_FILE.read_text())
-    return {"api_key": "", "schedule_times": ["09:00", "21:00"]}
+    return {"api_key": ""}
 
 def save_config(cfg):
     CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))
@@ -118,25 +118,8 @@ Threadsに投稿する文章を作成してください。
     save_posts(posts)
     return post
 
-def should_auto_generate(config):
-    """오늘 스케줄 시간이 지났는데 해당 시간대 글이 없으면 True"""
-    if not config.get("api_key") or not config.get("schedule_times"):
-        return False
-    now = datetime.now()
-    today = now.strftime("%Y-%m-%d")
-    current_hm = now.strftime("%H:%M")
-    posts = load_posts()
-    posts_today = [p for p in posts if p["created_at"].startswith(today)]
-    for t in config["schedule_times"]:
-        if current_hm >= t:
-            hour = t.split(":")[0]
-            done = any(p["created_at"].split(" ")[1][:2] == hour for p in posts_today)
-            if not done:
-                return True
-    return False
-
 # ── 페이지 설정 ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Threads 자동 생성기", page_icon="🧵", layout="wide")
+st.set_page_config(page_title="야후재팬 스레드 생성기", page_icon="🧵", layout="wide")
 
 st.markdown("""
 <style>
@@ -161,7 +144,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── 사이드바 (설정) ───────────────────────────────────────────────────────────
+# ── 사이드바 (API 키 설정) ────────────────────────────────────────────────────
 config = load_config()
 
 with st.sidebar:
@@ -175,39 +158,20 @@ with st.sidebar:
         help="sk-ant-api... 형태의 키를 입력하세요"
     )
 
-    st.markdown("**자동 생성 시간**")
-    times = config.get("schedule_times", ["09:00", "21:00"])
-    times_str = st.text_area(
-        "시간 목록 (한 줄에 하나씩)",
-        value="\n".join(times),
-        height=100,
-        label_visibility="collapsed"
-    )
-
-    if st.button("💾 설정 저장", use_container_width=True, type="primary"):
-        new_times = [t.strip() for t in times_str.strip().splitlines() if t.strip()]
+    if st.button("💾 저장", use_container_width=True, type="primary"):
         config["api_key"] = api_key_input
-        config["schedule_times"] = new_times
         save_config(config)
         st.success("저장됐어요!")
         st.rerun()
 
-    st.markdown("---")
-    st.caption("방문할 때마다 스케줄 시간이 지났으면 자동으로 글을 생성해요.")
-
 # ── 메인 영역 ─────────────────────────────────────────────────────────────────
 col_title, col_btn = st.columns([4, 1])
 with col_title:
-    st.title("🧵 Threads 자동 생성기")
+    st.title("🧵 야후재팬 스레드 생성기")
 with col_btn:
     st.markdown("<div style='padding-top:14px'>", unsafe_allow_html=True)
     generate_clicked = st.button("✍️ 지금 생성", type="primary", use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
-
-# 자동 생성 체크
-if not generate_clicked and should_auto_generate(config):
-    generate_clicked = True
-    st.info("⏰ 스케줄 시간이 됐어요! 자동으로 글을 생성할게요.")
 
 if generate_clicked:
     if not config.get("api_key"):
@@ -244,7 +208,6 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
-            # 이미지
             if post.get("images"):
                 img_cols = st.columns(len(post["images"]))
                 for i, img_url in enumerate(post["images"]):
@@ -254,12 +217,10 @@ else:
                         except Exception:
                             st.caption("이미지를 불러올 수 없어요")
 
-            # 본문
             st.markdown(f"""
             <div class='post-content'>{post['content']}</div>
             """, unsafe_allow_html=True)
 
-            # 삭제 버튼
             col_space, col_del = st.columns([5, 1])
             with col_del:
                 if st.button("🗑️ 삭제", key=f"del_{post['id']}"):
