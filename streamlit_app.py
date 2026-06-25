@@ -6,6 +6,7 @@ import anthropic
 import feedparser
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from bs4 import BeautifulSoup
 
 # ── 파일 경로 ────────────────────────────────────────────────────────────────
@@ -21,6 +22,32 @@ RSS_FEEDS = [
     "https://news.yahoo.co.jp/rss/topics/fashion.xml",
 ]
 HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
+
+# ── 복사 버튼 ────────────────────────────────────────────────────────────────
+def text_copy_button(text: str, key: str):
+    safe = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
+    components.html(f"""
+    <button id="btn_{key}" onclick="
+      navigator.clipboard.writeText(`{safe}`)
+        .then(()=>{{document.getElementById('btn_{key}').innerHTML='✅ 복사됨!';setTimeout(()=>document.getElementById('btn_{key}').innerHTML='📋 글 복사',2000)}})
+        .catch(()=>alert('복사 실패. 직접 선택해서 복사해주세요.'))
+    " style="width:100%;background:#ff4b4b;color:white;border:none;padding:9px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer">
+      📋 글 복사
+    </button>""", height=46)
+
+
+def image_copy_button(img_url: str, idx: int, key: str):
+    components.html(f"""
+    <button id="imgbtn_{key}_{idx}" onclick="
+      fetch('{img_url}')
+        .then(r=>r.blob())
+        .then(blob=>navigator.clipboard.write([new ClipboardItem({{[blob.type]:blob}})]))
+        .then(()=>{{document.getElementById('imgbtn_{key}_{idx}').innerHTML='✅ 복사됨!';setTimeout(()=>document.getElementById('imgbtn_{key}_{idx}').innerHTML='🖼️ 사진 복사',2000)}})
+        .catch(()=>{{document.getElementById('imgbtn_{key}_{idx}').innerHTML='📥 저장만 가능';document.getElementById('imgbtn_{key}_{idx}').onclick=()=>window.open('{img_url}','_blank')}})
+    " style="width:100%;background:#444;color:white;border:none;padding:7px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
+      🖼️ 사진 복사
+    </button>""", height=42)
+
 
 # ── 저장/불러오기 ─────────────────────────────────────────────────────────────
 def load_config():
@@ -94,7 +121,10 @@ Threadsに投稿する文章を作成してください。
 - Threads・X・インスタのSNSユーザー
 
 【文体・スタイル】
-- Threadsらしい読みやすい改行（2〜3文ごとに改行）
+- 1行は15〜20文字以内に収める（長い文は意味の切れ目で必ず改行）
+- 改行のリズム：2行書いたら空行1つ入れる
+- 接続助詞（けど・し・から・のに）や読点（、）の前後で自然に改行する
+- 例：「今日マジ疲れた\nもう限界ww\n\n仕事もしんどいけど\n人間関係が一番キツい😭」
 - ガールズちゃんねる・X（旧Twitter）の女性ユーザー風の自然な口語体
 - 共感を引き出す等身大の本音トーク（説教・押しつけ絶対NG）
 - 「ww」「笑」「〜じゃない？」「〜だよね」「〜すぎる」など自然な表現を使う
@@ -233,10 +263,13 @@ else:
                             st.image(img_url, use_container_width=True)
                         except Exception:
                             st.caption("이미지를 불러올 수 없어요")
+                        image_copy_button(img_url, i, post["id"])
 
             st.markdown(f"""
             <div class='post-content'>{post['content']}</div>
             """, unsafe_allow_html=True)
+
+            text_copy_button(post["content"], post["id"])
 
             if post.get("content_ko"):
                 with st.expander("🇰🇷 한국어 번역 보기"):
