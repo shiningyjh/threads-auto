@@ -8,7 +8,6 @@ import streamlit as st
 import streamlit.components.v1 as components
 
 # ── 파일 경로 ────────────────────────────────────────────────────────────────
-CONFIG_FILE = Path("config.json")
 POSTS_FILE = Path("posts.json")
 
 RSS_FEEDS = [
@@ -19,8 +18,6 @@ RSS_FEEDS = [
     "https://news.yahoo.co.jp/rss/topics/family.xml",
     "https://news.yahoo.co.jp/rss/topics/fashion.xml",
 ]
-HEADERS = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)"}
-
 # ── 복사 버튼 ────────────────────────────────────────────────────────────────
 def text_copy_button(text: str, key: str):
     safe = text.replace("\\", "\\\\").replace("`", "\\`").replace("$", "\\$")
@@ -35,20 +32,13 @@ def text_copy_button(text: str, key: str):
 
 
 # ── 저장/불러오기 ─────────────────────────────────────────────────────────────
-def load_config():
-    config = {}
-    if CONFIG_FILE.exists():
-        config = json.loads(CONFIG_FILE.read_text())
-    # Streamlit Secrets에 키가 있으면 우선 사용
+def load_api_key() -> str:
     try:
         if "ANTHROPIC_API_KEY" in st.secrets:
-            config["api_key"] = st.secrets["ANTHROPIC_API_KEY"]
+            return st.secrets["ANTHROPIC_API_KEY"]
     except Exception:
         pass
-    return config if config else {"api_key": ""}
-
-def save_config(cfg):
-    CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))
+    return ""
 
 def load_posts():
     if POSTS_FILE.exists():
@@ -217,25 +207,11 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ── 사이드바 (API 키 설정) ────────────────────────────────────────────────────
-config = load_config()
-
-with st.sidebar:
-    st.title("⚙️ 설정")
-    st.markdown("---")
-
-    api_key_input = st.text_input(
-        "Claude API 키",
-        value=config.get("api_key", ""),
-        type="password",
-        help="sk-ant-api... 형태의 키를 입력하세요"
-    )
-
-    if st.button("💾 저장", use_container_width=True, type="primary"):
-        config["api_key"] = api_key_input
-        save_config(config)
-        st.success("저장됐어요!")
-        st.rerun()
+# ── API 키 로드 ───────────────────────────────────────────────────────────────
+api_key = load_api_key()
+if not api_key:
+    st.error("API 키가 설정되지 않았어요. Streamlit Cloud > Settings > Secrets에 ANTHROPIC_API_KEY를 추가해주세요.")
+    st.stop()
 
 # ── 메인 영역 ─────────────────────────────────────────────────────────────────
 col_title, col_btn = st.columns([4, 1])
@@ -247,14 +223,11 @@ with col_btn:
     st.markdown("</div>", unsafe_allow_html=True)
 
 if generate_clicked:
-    if not config.get("api_key"):
-        st.warning("왼쪽 사이드바에서 Claude API 키를 먼저 입력해주세요.")
-    else:
-        with st.spinner("야후재팬에서 주제 가져오는 중... 약 30초~1분 걸려요 ☕"):
-            post = generate_post(config["api_key"])
-        if post:
-            st.success("글 생성 완료!")
-            st.rerun()
+    with st.spinner("야후재팬에서 주제 가져오는 중... 약 30초~1분 걸려요 ☕"):
+        post = generate_post(api_key)
+    if post:
+        st.success("글 생성 완료!")
+        st.rerun()
 
 st.markdown("---")
 
