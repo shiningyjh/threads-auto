@@ -185,25 +185,34 @@ def generate_post(api_key):
     return post
 
 # ── 페이지 설정 ───────────────────────────────────────────────────────────────
-st.set_page_config(page_title="야후재팬 스레드 생성기", page_icon="🧵", layout="wide")
+st.set_page_config(page_title="야후재팬 스레드 생성기", page_icon="🧵", layout="centered")
 
 st.markdown("""
 <style>
+  /* 최대 너비 제한 — 모바일/데스크톱 모두 읽기 편하게 */
+  .block-container { max-width: 680px !important; padding: 1.5rem 1rem !important; }
+
   .post-card {
     border: 1px solid rgba(128,128,128,0.3);
     border-radius: 14px;
-    padding: 20px;
-    margin-bottom: 20px;
+    padding: 16px;
+    margin-bottom: 16px;
   }
   .post-date { font-size: 12px; opacity: 0.55; margin-bottom: 4px; }
-  .post-topic { font-size: 14px; font-weight: 600; opacity: 0.75; margin-bottom: 14px; }
+  .post-topic { font-size: 14px; font-weight: 600; opacity: 0.75; margin-bottom: 10px; }
   .post-content {
     font-size: 15px;
-    line-height: 1.85;
+    line-height: 1.9;
     white-space: pre-wrap;
     word-break: break-word;
   }
   .stButton > button { border-radius: 8px !important; }
+
+  /* 모바일 폰트 크기 보정 */
+  @media (max-width: 480px) {
+    .post-content { font-size: 14px; }
+    .post-topic { font-size: 13px; }
+  }
 </style>
 """, unsafe_allow_html=True)
 
