@@ -4,10 +4,8 @@ from pathlib import Path
 
 import anthropic
 import feedparser
-import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from bs4 import BeautifulSoup
 
 # ── 파일 경로 ────────────────────────────────────────────────────────────────
 CONFIG_FILE = Path("config.json")
@@ -36,19 +34,6 @@ def text_copy_button(text: str, key: str):
     </button>""", height=46)
 
 
-def image_copy_button(img_url: str, idx: int, key: str):
-    components.html(f"""
-    <button id="imgbtn_{key}_{idx}" onclick="
-      fetch('{img_url}')
-        .then(r=>r.blob())
-        .then(blob=>navigator.clipboard.write([new ClipboardItem({{[blob.type]:blob}})]))
-        .then(()=>{{document.getElementById('imgbtn_{key}_{idx}').innerHTML='✅ 복사됨!';setTimeout(()=>document.getElementById('imgbtn_{key}_{idx}').innerHTML='🖼️ 사진 복사',2000)}})
-        .catch(()=>{{document.getElementById('imgbtn_{key}_{idx}').innerHTML='📥 저장만 가능';document.getElementById('imgbtn_{key}_{idx}').onclick=()=>window.open('{img_url}','_blank')}})
-    " style="width:100%;background:#444;color:white;border:none;padding:7px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer">
-      🖼️ 사진 복사
-    </button>""", height=42)
-
-
 # ── 저장/불러오기 ─────────────────────────────────────────────────────────────
 def load_config():
     if CONFIG_FILE.exists():
@@ -75,26 +60,6 @@ def fetch_articles():
             articles.append({"title": entry.title, "url": entry.link})
     return articles
 
-def fetch_og_image(url):
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=10)
-        soup = BeautifulSoup(resp.text, "html.parser")
-        tag = soup.find("meta", property="og:image")
-        return tag["content"] if tag and tag.get("content") else None
-    except Exception:
-        return None
-
-def collect_image_urls(articles, count=2):
-    images = []        # og:image URL 목록
-    image_sources = [] # 이미지 출처 기사 제목
-    for article in articles:
-        if len(images) >= count:
-            break
-        img = fetch_og_image(article["url"])
-        if img:
-            images.append(img)
-            image_sources.append(article["title"])
-    return images, image_sources
 
 def generate_post(api_key):
     articles = fetch_articles()
@@ -168,8 +133,6 @@ def generate_post(api_key):
 選んだ記事番号：N（見出しリストの番号）
 選んだトピック：〇〇〇
 選んだ理由：（한국어로 2~3줄. 왜 이 주제가 오늘 타겟에게 잘 맞는지）
-追加画像記事番号：M（1番目の画像は選んだ記事から自動取得。2番目用に、選んだ記事と同じカテゴリ・雰囲気の記事番号を1つだけ指定）
-追加画像選択理由：（한국어로. 왜 이 기사가 메인 기사와 어울려서 함께 올리기 좋은지）
 ---
 （Threads投稿本文）
 ===
@@ -185,9 +148,7 @@ def generate_post(api_key):
     # 헤더 파싱
     topic = ""
     reason = ""
-    article_idx = None   # 기사 출처 번호 (1-based)
-    image_idxs = []      # 이미지 기사 번호 (1-based)
-    image_reason = ""
+    article_idx = None
 
     for line in header.splitlines():
         line = line.strip()
@@ -201,28 +162,12 @@ def generate_post(api_key):
             topic = line.replace("選んだトピック：", "").strip()
         elif line.startswith("選んだ理由："):
             reason = line.replace("選んだ理由：", "").strip()
-        elif line.startswith("追加画像記事番号："):
-            val = line.replace("追加画像記事番号：", "").strip()
-            try:
-                image_idxs.append(int(val.split()[0]) - 1)  # 0-based, 보조 이미지 1개
-            except Exception:
-                pass
-        elif line.startswith("追加画像選択理由："):
-            image_reason = line.replace("追加画像選択理由：", "").strip()
 
     jp_ko = rest.split("===", 1)
     content = jp_ko[0].strip()
     content_ko = jp_ko[1].strip() if len(jp_ko) > 1 else ""
 
-    # 1번 이미지: 반드시 선택한 기사에서, 2번 이미지: Claude가 지정한 보조 기사
-    main_article = [articles[article_idx]] if article_idx is not None and 0 <= article_idx < len(articles) else []
-    sub_articles = [articles[i] for i in image_idxs if 0 <= i < len(articles) and i != article_idx]
-    # fallback: 위 둘로 2장 못 채우면 나머지 기사에서 보충
-    fallback = [a for a in articles if a not in main_article and a not in sub_articles]
-    ordered_articles = main_article + sub_articles + fallback
-    images, image_sources = collect_image_urls(ordered_articles, count=2)
-
-    # 기사 출처 (Claude가 선택한 기사 제목 + URL)
+    # 기사 출처
     article_source_title = articles[article_idx]["title"] if article_idx is not None and 0 <= article_idx < len(articles) else ""
     article_source_url = articles[article_idx]["url"] if article_idx is not None and 0 <= article_idx < len(articles) else ""
 
@@ -235,9 +180,6 @@ def generate_post(api_key):
         "article_source_url": article_source_url,
         "content": content,
         "content_ko": content_ko,
-        "images": images,
-        "image_sources": image_sources,
-        "image_reason": image_reason,
     }
 
     posts = load_posts()
@@ -340,21 +282,6 @@ else:
                     st.caption(f"📰 기사 출처: [{post['article_source_title']}]({url})")
                 else:
                     st.caption(f"📰 기사 출처: {post['article_source_title']}")
-
-            if post.get("images"):
-                img_cols = st.columns(len(post["images"]))
-                image_sources = post.get("image_sources", [])
-                for i, img_url in enumerate(post["images"]):
-                    with img_cols[i]:
-                        try:
-                            st.image(img_url, use_container_width=True)
-                        except Exception:
-                            st.caption("이미지를 불러올 수 없어요")
-                        if i < len(image_sources):
-                            st.caption(f"📰 사진 출처: {image_sources[i]}")
-                        image_copy_button(img_url, i, post["id"])
-                if post.get("image_reason"):
-                    st.caption(f"🖼️ 사진 선택 이유: {post['image_reason']}")
 
             st.markdown(f"""
             <div class='post-content'>{post['content']}</div>
