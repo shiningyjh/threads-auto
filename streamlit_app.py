@@ -64,23 +64,22 @@ def generate_post(api_key):
         st.error("야후재팬에서 기사를 가져오지 못했어요.")
         return None
 
-    # 오늘 이미 사용한 주제 목록
+    # 오늘 이미 사용한 기사 URL을 목록에서 제거
     today = datetime.now().strftime("%Y-%m-%d")
     all_posts = load_posts()
-    used_today = [p["topic"] for p in all_posts if p["created_at"].startswith(today)]
+    used_urls = {
+        p.get("article_source_url", "")
+        for p in all_posts
+        if p["created_at"].startswith(today) and p.get("article_source_url")
+    }
+    articles = [a for a in articles if a["url"] not in used_urls]
+
+    if not articles:
+        st.warning("오늘 사용 가능한 새 기사가 없어요. 내일 다시 시도해주세요.")
+        return None
 
     client = anthropic.Anthropic(api_key=api_key)
     topics_text = "\n".join(f"{i+1}. {a['title']}" for i, a in enumerate(articles))
-
-    # 오늘 사용한 주제가 있으면 회피 지시 블록 추가
-    avoid_block = ""
-    if used_today:
-        used_list = "\n".join(f"・{t}" for t in used_today)
-        avoid_block = f"""
-【今日すでに投稿済み — 絶対に選ばないこと】
-{used_list}
-
-"""
 
     message = client.messages.create(
         model="claude-opus-4-8",
@@ -90,7 +89,7 @@ def generate_post(api_key):
             "content": f"""以下はYahoo! Japanの最新ニュース見出しです:
 
 {topics_text}
-{avoid_block}
+
 この中から20〜40代の日本人女性（アラサー・アラフォー）が最も共感・興味を持ちそうなトピックを1つ選んで、
 日本人女性がThreadsに投稿するような文章を書いてください。
 
