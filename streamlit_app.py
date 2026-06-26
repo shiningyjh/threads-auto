@@ -85,14 +85,16 @@ def fetch_og_image(url):
         return None
 
 def collect_image_urls(articles, count=2):
-    images = []
+    images = []        # og:image URL 목록
+    image_sources = [] # 이미지 출처 기사 제목
     for article in articles:
         if len(images) >= count:
             break
         img = fetch_og_image(article["url"])
         if img:
             images.append(img)
-    return images
+            image_sources.append(article["title"])
+    return images, image_sources
 
 def generate_post(api_key):
     articles = fetch_articles()
@@ -100,8 +102,23 @@ def generate_post(api_key):
         st.error("야후재팬에서 기사를 가져오지 못했어요.")
         return None
 
+    # 오늘 이미 사용한 주제 목록
+    today = datetime.now().strftime("%Y-%m-%d")
+    all_posts = load_posts()
+    used_today = [p["topic"] for p in all_posts if p["created_at"].startswith(today)]
+
     client = anthropic.Anthropic(api_key=api_key)
     topics_text = "\n".join(f"{i+1}. {a['title']}" for i, a in enumerate(articles))
+
+    # 오늘 사용한 주제가 있으면 회피 지시 블록 추가
+    avoid_block = ""
+    if used_today:
+        used_list = "\n".join(f"・{t}" for t in used_today)
+        avoid_block = f"""
+【今日すでに投稿済み — 絶対に選ばないこと】
+{used_list}
+
+"""
 
     message = client.messages.create(
         model="claude-opus-4-8",
@@ -111,9 +128,14 @@ def generate_post(api_key):
             "content": f"""以下はYahoo! Japanの最新ニュース見出しです:
 
 {topics_text}
-
+{avoid_block}
 この中から20〜40代の日本人女性（アラサー・アラフォー）が最も共感・興味を持ちそうなトピックを1つ選んで、
 日本人女性がThreadsに投稿するような文章を書いてください。
+
+【トピック選定ルール】
+- 結婚・婚活・恋愛・出会い系のトピックは他に選択肢がある場合は避ける
+- 美容・健康・ファッション・仕事・育児・エンタメなど幅広いカテゴリから選ぶ
+- 直前の投稿済みトピックと同じカテゴリはできるだけ避ける
 
 【絶対条件】
 ニュースの解説や要約は絶対NG。
@@ -143,7 +165,11 @@ def generate_post(api_key):
 - 全体150〜200文字
 
 【出力形式】
+選んだ記事番号：N（見出しリストの番号）
 選んだトピック：〇〇〇
+選んだ理由：（한국어로 2~3줄. 왜 이 주제가 오늘 타겟에게 잘 맞는지）
+追加画像記事番号：M（1番目の画像は選んだ記事から自動取得。2番目用に、選んだ記事と同じカテゴリ・雰囲気の記事番号を1つだけ指定）
+追加画像選択理由：（한국어로. 왜 이 기사가 메인 기사와 어울려서 함께 올리기 좋은지）
 ---
 （Threads投稿本文）
 ===
@@ -153,22 +179,65 @@ def generate_post(api_key):
 
     raw = message.content[0].text
     parts = raw.split("---", 1)
-    topic = parts[0].replace("選んだトピック：", "").strip()
+    header = parts[0]
     rest = parts[1].strip() if len(parts) > 1 else raw.strip()
+
+    # 헤더 파싱
+    topic = ""
+    reason = ""
+    article_idx = None   # 기사 출처 번호 (1-based)
+    image_idxs = []      # 이미지 기사 번호 (1-based)
+    image_reason = ""
+
+    for line in header.splitlines():
+        line = line.strip()
+        if line.startswith("選んだ記事番号："):
+            val = line.replace("選んだ記事番号：", "").strip()
+            try:
+                article_idx = int(val.split()[0]) - 1  # 0-based
+            except Exception:
+                pass
+        elif line.startswith("選んだトピック："):
+            topic = line.replace("選んだトピック：", "").strip()
+        elif line.startswith("選んだ理由："):
+            reason = line.replace("選んだ理由：", "").strip()
+        elif line.startswith("追加画像記事番号："):
+            val = line.replace("追加画像記事番号：", "").strip()
+            try:
+                image_idxs.append(int(val.split()[0]) - 1)  # 0-based, 보조 이미지 1개
+            except Exception:
+                pass
+        elif line.startswith("追加画像選択理由："):
+            image_reason = line.replace("追加画像選択理由：", "").strip()
 
     jp_ko = rest.split("===", 1)
     content = jp_ko[0].strip()
     content_ko = jp_ko[1].strip() if len(jp_ko) > 1 else ""
 
-    images = collect_image_urls(articles)
+    # 1번 이미지: 반드시 선택한 기사에서, 2번 이미지: Claude가 지정한 보조 기사
+    main_article = [articles[article_idx]] if article_idx is not None and 0 <= article_idx < len(articles) else []
+    sub_articles = [articles[i] for i in image_idxs if 0 <= i < len(articles) and i != article_idx]
+    # fallback: 위 둘로 2장 못 채우면 나머지 기사에서 보충
+    fallback = [a for a in articles if a not in main_article and a not in sub_articles]
+    ordered_articles = main_article + sub_articles + fallback
+    images, image_sources = collect_image_urls(ordered_articles, count=2)
+
+    # 기사 출처 (Claude가 선택한 기사 제목 + URL)
+    article_source_title = articles[article_idx]["title"] if article_idx is not None and 0 <= article_idx < len(articles) else ""
+    article_source_url = articles[article_idx]["url"] if article_idx is not None and 0 <= article_idx < len(articles) else ""
 
     post = {
         "id": datetime.now().strftime("%Y%m%d_%H%M%S"),
         "created_at": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "topic": topic,
+        "reason": reason,
+        "article_source_title": article_source_title,
+        "article_source_url": article_source_url,
         "content": content,
         "content_ko": content_ko,
         "images": images,
+        "image_sources": image_sources,
+        "image_reason": image_reason,
     }
 
     posts = load_posts()
@@ -263,15 +332,29 @@ else:
             </div>
             """, unsafe_allow_html=True)
 
+            if post.get("reason"):
+                st.caption(f"💡 기사 선택 이유: {post['reason']}")
+            if post.get("article_source_title"):
+                url = post.get("article_source_url", "")
+                if url:
+                    st.caption(f"📰 기사 출처: [{post['article_source_title']}]({url})")
+                else:
+                    st.caption(f"📰 기사 출처: {post['article_source_title']}")
+
             if post.get("images"):
                 img_cols = st.columns(len(post["images"]))
+                image_sources = post.get("image_sources", [])
                 for i, img_url in enumerate(post["images"]):
                     with img_cols[i]:
                         try:
                             st.image(img_url, use_container_width=True)
                         except Exception:
                             st.caption("이미지를 불러올 수 없어요")
+                        if i < len(image_sources):
+                            st.caption(f"📰 사진 출처: {image_sources[i]}")
                         image_copy_button(img_url, i, post["id"])
+                if post.get("image_reason"):
+                    st.caption(f"🖼️ 사진 선택 이유: {post['image_reason']}")
 
             st.markdown(f"""
             <div class='post-content'>{post['content']}</div>
