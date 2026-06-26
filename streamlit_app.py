@@ -36,9 +36,16 @@ def text_copy_button(text: str, key: str):
 
 # ── 저장/불러오기 ─────────────────────────────────────────────────────────────
 def load_config():
+    config = {}
     if CONFIG_FILE.exists():
-        return json.loads(CONFIG_FILE.read_text())
-    return {"api_key": ""}
+        config = json.loads(CONFIG_FILE.read_text())
+    # Streamlit Secrets에 키가 있으면 우선 사용
+    try:
+        if "ANTHROPIC_API_KEY" in st.secrets:
+            config["api_key"] = st.secrets["ANTHROPIC_API_KEY"]
+    except Exception:
+        pass
+    return config if config else {"api_key": ""}
 
 def save_config(cfg):
     CONFIG_FILE.write_text(json.dumps(cfg, ensure_ascii=False, indent=2))
